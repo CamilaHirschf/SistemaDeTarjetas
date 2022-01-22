@@ -1,0 +1,662 @@
+= Base de datos: Trabajo Práctico 
+
+Agustina Camila Hirschfeld <camilahirschf@gmail.com>;
+
+
+
+v1, {docdate}. Docentes Hernan Czemerinski; Hernan Rondelli; Omar Argañaras (COM-01)
+
+:title-page:
+
+:numbered:
+
+:source-highlighter: coderay
+:tabsize: 4
+
+
+
+== Introducción
+
+El siguiente trabajo práctico consiste en implementar un sistema de almacenamiento de informacion relativa a tarjetas de creditos.
+Se hará mediante funciones que responderá al pedido del usuario mostrando un resumen de las compras y rechazos de 20 tarjetas de 20 clientes.
+Por cuestiones de diseño estas tarjetas solo aceptan pago único por lo tanto no permite a los usuarios financiar compra en cuotas. Además 2 personas
+contarán con dos tarjetas c/u de las cuales una deberá estar expirada.
+Para implemetar este TP utilizaremos las herramientas aprendidas de PostgresSql durante la cursada. 
+
+== Descripción
+
+
+En este proyecto tuvimos dificultades que van desde la adaptación al lenguaje GO hasta complicaciones básicas con codigo que no funcionaba.
+uno de las primeros problemas menores que nos topamos fue el encontrar los errores de sintaxis en las tablas ya creadas dentro de la base de datos.
+Luego fue la creación de los stored procedures, ya sea por errores de sintaxis o mala implementación. 
+
+Una de las primeras decisiones que tomamos al momento de encarar el trabajo fue comenzar a modelar la base de datos.
+Empezamos creando todas las tablas necesarias y sus respectivas primary y foreign keys. Una vez hecho esto, fuimos llenando de datos las tablas
+clientes, tarjetas y comercios. 
+Luego pasamos la base de datos a un archivo .go. Allí fuimos dividiendo y adaptando en varias funciones todo
+lo que teníamos 
+previamente. Al tener lo básico, decidimos por comenzar a hacer los stored procedures y triggers. Primero con la función 
+autorizarCompra()
+y luego con generarResumen(). En estas funciones no tivumos dificultades más allá de no saber cómo comenzar a
+realizar la funcion generarResumen(), ya que se nos hacía confuso 
+el obtener los datos de las tablas necesarias para insertarlas
+en las tablas correspodientes para generar un resumen.
+En los triggers tuvimos complicaciones en los condicionales que había
+que crear, pero estos no funcionaban en la ejecución a pesar de que, por lo menos para nosotros,
+estaban bien implementados.
+Esto nos trajo muchos retraso en el proyecto, ya que no sabíamos qué es lo que se debía hacer dentro un trigger.
+
+
+  Por ultimo en tema de dificultades, dentro del archivo main.go que contiene a las funciones que realizan las operaciones en
+sql, nos encontramos que
+no funcionaban correctamente, por ejemplo, el siguiente codigo no realiza la operación dentro de
+la Query, lo caul también nos retrasó en el avance del proyecto:
+	[
+	func crearStoredProcedures() {
+		db,err:=sql.Open("postgres", "user=postgres host=localhost dbname=bbdd sslmode=disable")
+		if err!=nil {
+			log.Fatal(err)
+		}
+		defer db.Close()
+		_,err= db.Query(`create or replace function autorizarCompra(nrotarjeta_buscado char(16), codseguridad_buscado char(4), nrocomercio_buscado int, monto_ingresado decimal(7,2)) returns boolean as $$
+		
+
+				declare
+
+	 
+							resultado record;
+   
+	 
+							monto_pendiente float;
+   
+	 
+							v record;
+
+   
+	 
+							fecha_expiracion char(6);
+						begin
+	
+	 	
+							monto_pendiente := 0;
+	 	
+							fecha_expiracion := 211115;
+ 	
+   	
+
+	 	
+							select * into resultado from tarjeta where nrotarjeta = nrotarjeta_buscado and estado = 'vigente';
+								if not found then
+   			
+									raise notice 'tarjeta no valida o no vigente';
+ 
+									insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'tarjeta no valida o no vigente');
+   
+									return false;
+
+
+	 		
+								elsif resultado.codseguridad != codseguridad_buscado then
+   		 
+									raise notice 'codigo de seguridad invalido';
+ 
+	 	  	
+									insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'codigo de seguridad invalido');	
+									return false;
+
+			
+								for v in select * from compra where nrotarjeta = resultado.nrotarjeta and pagado = false loop
+									
+monto_pendiente := monto_pendiente + v.monto;
+ 		 
+			
+								end loop;
+
+
+
+			
+								elsif monto_pendiente + monto_ingresado > resultado.limitecompra then
+									raise notice 'Supera limite de tarjeta';
+ 	   		
+		
+									insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'Supera limite de tarjeta');
+ 	  
+									return false;
+
+
+			
+								elsif resultado.estado = 'suspendida' then
+			
+				 
+									raise notice 'La tarjeta se encuentra suspendida';
+ 	   
+				 
+									insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'La tarjeta se encuentra suspendida');
+	
+									return false;
+
+			
+						
+
+	  elsif resultado.validahasta > fecha_expiracion then
+						
+		   raise notice 'Plazo de vigencia expirado';
+ 	 
+		 
+									insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'Plazo de vigencia expirado');
+						
+		   return false;
+ 	   	
+			
+
+		 	
+								else 
+   		 
+		 	 	
+									insert into compra values(default , nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, false);
+  
+									return true;
+   		 	
+
+		 	 	
+								end if;
+						end;	
+   	
+						$$ language plpgsql;`)
+			
+		if err!=nil{
+			log.Fatal(err)
+		}
+		
+		fmt.Printf("Se crearon los Stored Procedures\n")
+	}
+	
+	]
+
+
+ El funcionamiento del programa esta centrado en el archivo main.go, alló se invocan las funciones en un menú que permite al usuario elegir por medio de numeros la función 
+ que quiere realiazar primero pero con cierto orden. Dentro de las funciones se realizan funciones y sentencias escritas en código sql.	 
+  
+
+
+== Implementación
+
+-JSON y Bases de datos NoSQL:
+Esta función se encarga de guardar datos de cuatro tablas de un modelo relacional a un modelo no relacional. Se representan su funcionalidad con
+este ejemplo de tabla Cliente.
+----
+//Se crea la tabla
+type Cliente struct{
+	
+	Nrocliente int
+	
+	Nombre string
+	
+	Apellido string
+	Domicilio string
+	Telefono string
+
+}
+//Se cargan los registros
+
+
+cliente_1 := Cliente{1, "Losa", "Pastor", "Ingeniero Agustin Rosas 95", "11-5487-9827"}
+		
+cliente_2 := Cliente{2, "Celestina", "Lobo", "Av Rivadavia 1391", "11-9159-7968"}
+		
+cliente_3 := Cliente{3, "Belen", "Torre", "San Miguel", "11-0243-8815"}
+
+//Se guarda en una variable los datos covertidos en JSON
+Cliente_1_JSON, err := json.Marshal(cliente_1)
+		
+	if err != nil{
+		
+	log.Fatal(err)	
+		
+	}	
+
+		
+Cliente_2_JSON, err := json.Marshal(cliente_2)
+		
+	if err != nil{
+		
+	log.Fatal(err)	
+		
+	}
+
+		
+Cliente_3_JSON, err := json.Marshal(cliente_3)
+		
+	if err != nil{
+		
+	log.Fatal(err)	
+		
+	}
+//Se llama a la funcion CreateUpdate para guardar los datos que se pasan como parametro la bd, la tabla, registro de la tabla y el registro convertido en JSON. 
+CreateUpdate(db, "cliente", []byte(strconv.Itoa(cliente_1.Nrocliente)), Cliente_1_JSON)
+	
+	
+	
+CreateUpdate(db, "cliente", []byte(strconv.Itoa(cliente_2.Nrocliente)), Cliente_2_JSON)
+	
+	
+	
+CreateUpdate(db, "cliente", []byte(strconv.Itoa(cliente_3.Nrocliente)), Cliente_3_JSON)
+
+
+//Se guarda en una variable los datos leidos.	
+Cliente1, err := ReadUnique(db, "cliente", []byte(strconv.Itoa(cliente_1.Nrocliente)))
+	
+	
+	
+Cliente2, err := ReadUnique(db, "cliente", []byte(strconv.Itoa(cliente_2.Nrocliente)))
+	
+	
+	
+Cliente3, err := ReadUnique(db, "cliente", []byte(strconv.Itoa(cliente_3.Nrocliente)))
+//Se imprime la varible para ver los datos obtenidos.	
+	
+fmt.Printf("%s\n", Cliente1)
+	
+	
+	
+fmt.Printf("%s\n", Cliente2)
+	
+	
+	
+fmt.Printf("%s\n", Cliente3)
+----
+		type consumosVirtuales struct{
+		nrotarjeta int 
+		codseguridad, nrocomercio int
+		monto float64 
+	} 
+	
+	func probarConsumos(){
+	
+		db,err:=sql.Open("postgres", "user=postgres host=localhost dbname=bbdd sslmode=disable")
+		if err!=nil {
+			log.Fatal(err)
+		}
+		defer db.Close()
+	
+		_,err= db.Query(` create or replace function Autorizar() returns void as $$
+							declare
+		
+
+					v record;
+							begin 
+			
+								for v in select * from consumosVirtuales loop
+		
+			
+									PERFORM autorizarCompra(v.nrotarjeta, v.codseguridad, v.nrocomercio, v.monto);
+
+		
+								end loop;
+							end;
+							$$ 	language plpgsql;
+`)
+								
+		if err!=nil{
+			log.Fatal(err)
+		}
+							
+		fmt.Printf("Se probaron los consumos\n")
+	}
+	
+	
+	//falta generar resumen
+	func crearStoredProcedures() {
+		db,err:=sql.Open("postgres", "user=postgres host=localhost dbname=bbdd sslmode=disable")
+		if err!=nil {
+			log.Fatal(err)
+		}
+		defer db.Close()
+		_,err= db.Query(`create or replace function autorizarCompra(nrotarjeta_buscado char(16), codseguridad_buscado char(4), nrocomercio_buscado int, monto_ingresado decimal(7,2)) returns boolean as $$
+		
+
+				declare
+
+	 
+							resultado record;
+   
+	 
+							monto_pendiente float;
+   
+	 
+							v record;
+
+   
+	 
+							fecha_expiracion char(6);
+						begin
+	
+	 	
+							monto_pendiente := 0;
+	 	
+							fecha_expiracion := 211115;
+ 	
+   	
+
+	 	
+							select * into resultado from tarjeta where nrotarjeta = nrotarjeta_buscado and estado = 'vigente';
+								if not found then
+   			
+									raise notice 'tarjeta no valida o no vigente';
+ 
+									insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'tarjeta no valida o no vigente');
+   
+									return false;
+
+
+	 		
+								elsif resultado.codseguridad != codseguridad_buscado then
+   		 
+									raise notice 'codigo de seguridad invalido';
+ 
+	 	  	
+									insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'codigo de seguridad invalido');	
+									return false;
+
+			
+								for v in select * from compra where nrotarjeta = resultado.nrotarjeta and pagado = false loop
+									
+monto_pendiente := monto_pendiente + v.monto;
+ 		 
+			
+								end loop;
+
+
+
+			
+								elsif monto_pendiente + monto_ingresado > resultado.limitecompra then
+									raise notice 'Supera limite de tarjeta';
+ 	   		
+		
+									insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'Supera limite de tarjeta');
+ 	  
+									return false;
+
+
+			
+								elsif resultado.estado = 'suspendida' then
+			
+				 
+									raise notice 'La tarjeta se encuentra suspendida';
+ 	   
+				 
+									insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'La tarjeta se encuentra suspendida');
+	
+									return false;
+
+			
+						
+
+	  elsif resultado.validahasta > fecha_expiracion then
+						
+		   raise notice 'Plazo de vigencia expirado';
+ 	 
+		 
+									insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'Plazo de vigencia expirado');
+						
+		   return false;
+ 	   	
+			
+
+		 	
+								else 
+   		 
+		 	 	
+									insert into compra values(default , nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, false);
+  
+									return true;
+   		 	
+
+		 	 	
+								end if;
+						end;	
+   	
+						$$ language plpgsql;`)
+			
+		if err!=nil{
+			log.Fatal(err)
+		}
+		
+		fmt.Printf("Se crearon los Stored Procedures\n")
+	}
+	
+	
+	func salir() {
+		n:=5
+		for  i:=0 ; i<n ;i++ {
+			break
+		}
+	}
+	
+	func crearTriggers(){
+		db,err:=sql.Open("postgres", "user=postgres host=localhost dbname=bbdd sslmode=disable")
+			if err!=nil {
+				log.Fatal(err)
+			}
+			defer db.Close()
+			_,err= db.Query(`create or replace function rechazo() returns trigger as $$
+							 declare
+							 begin
+
+	
+								insert into alerta values(default, new.nrotarjeta, current_timestamp, new.nrorechazo, 0, new.motivo);
+							 	return new;
+							 end;
+							 $$ language plpgsql;
+	
+							create trigger rechazo_trg
+							after update or insert on rechazo
+							for each row
+							execute procedure rechazo();
+							
+							create or replace function dosCompras1min() returns trigger as $$
+							declare 
+								i char(16);
+							begin 
+								select into i nrotarjeta from compra c1 where exists(select nrotarjeta from compra c2 where c1.nrotarjeta=c2.nrotarjeta group by nrotarjeta having count(c2.nrotarjeta)>=2
+								and exists (select codigopostal from comercio p1 where exists(select codigopostal from comercio p2 where p1.codigopostal=p2.codigopostal group by codigopostal having count(p2.codigopostal)>=2)));
+								if found then 
+									insert into alerta values(default, i, current_timestamp, null, 1, 'dos compras en menos de 1 minuto');
+								end if;
+								return new;
+							end;
+							$$ language plpgsql;
+							
+							create trigger dosCompras_trg 
+							after update or insert on compra
+							for each row
+							execute procedure dosCompras1min();
+							
+							create or replace function dosCompras5min() returns trigger as $$
+							declare
+								v char(16);
+							begin
+								select into v nrotarjeta from compra c1 where exists(select nrotarjeta from compra c2 where c1.nrotarjeta=c2.nrotarjeta group by nrotarjeta having count(c2.nrotarjeta)>=2
+								and exists (select distinct(codigopostal) from comercio group by codigopostal));
+								if found then 
+									insert into alerta values(default, v, current_timestamp, null, 5, 'dos compras en menos de 5 minuto');
+								end if;
+								return new;
+							end;
+							$$ language plpgsql;
+							 
+							create trigger dosCompras5min_trg 
+							after update or insert on compra
+							for each row
+							execute procedure dosCompras5min();
+							`)
+	
+		if err!=nil {
+		log.Fatal(err)
+	}
+		fmt.Printf("Se crearon los Triggers\n")																									
+	} 
+	
+]
+
+Stored porcedure y triggers:
+[
+	create or replace function autorizarCompra(nrotarjeta_buscado char(16), codseguridad_buscado char(4), nrocomercio_buscado int, monto_ingresado decimal(7,2)) returns boolean as $$
+	declare
+		 resultado record;
+   
+		 monto_pendiente float;
+   
+		 v record;
+
+   
+		 fecha_expiracion char(6);
+	
+	begin
+		
+		 	monto_pendiente := 0;
+		 	fecha_expiracion := 211115;
+ 	
+   	
+	
+		 	select * into resultado from tarjeta where nrotarjeta = nrotarjeta_buscado and estado = 'vigente';
+		
+	
+		 		if not found then
+   			
+		 			raise notice 'tarjeta no valida o no vigente';
+   		 	
+		 			insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'tarjeta no valida o no vigente');
+   		 	
+   		 	
+		 			return false;
+	
+		 		elsif resultado.codseguridad != codseguridad_buscado then
+   		  
+		 			raise notice 'codigo de seguridad invalido';
+ 
+		 	  		insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'codigo de seguridad invalido');		 	     	 		    	
+		 	  		return false;
+	
+				for v in select * from compra where nrotarjeta = resultado.nrotarjeta and pagado = false loop
+ 	
+				monto_pendiente := monto_pendiente + v.monto;
+ 		 
+				end loop;
+	
+				elsif monto_pendiente + monto_ingresado > resultado.limitecompra then
+				 	raise notice 'Supera limite de tarjeta';
+ 	   		
+				 	insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'Supera limite de tarjeta');
+ 	   		
+					return false;
+	
+				elsif resultado.estado = 'suspendida' then
+			
+					 raise notice 'La tarjeta se encuentra suspendida';
+ 	   
+					 insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'La tarjeta se encuentra suspendida');
+			
+				 	 return false;
+
+			
+	
+				elsif resultado.validahasta > fecha_expiracion then
+				 	 raise notice 'Plazo de vigencia expirado';
+ 	 
+			  		 insert into rechazo values (default, nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, 'Plazo de vigencia expirado');
+			 	   	 return false;
+ 	   	
+			
+	
+			 	 else 
+   		 
+			 	 	insert into compra values(default , nrotarjeta_buscado, nrocomercio_buscado, current_timestamp, monto_ingresado, false);
+   	
+			 	 	return true;
+   		 	
+			 	 	end if;
+	
+	end;	
+   	
+	$$ language plpgsql;
+
+
+	create or replace function Autorizar() returns void as $$
+	declare
+		v record;
+	begin 
+				for v in select * from consumosVirtuales loop
+		
+					PERFORM autorizarCompra(v.nrotarjeta, v.codseguridad, v.nrocomercio, v.monto);
+				end loop;
+	
+	end;
+	
+$$ language plpgsql;
+
+	
+	create or replace function rechazo() returns trigger as $$
+	declare
+	begin
+		insert into alerta values(default, new.nrotarjeta, current_timestamp, new.nrorechazo, 0, new.motivo);
+		return new;
+	
+	end;
+	$$ language plpgsql;
+	
+	create trigger rechazo_trg
+	after update or insert on rechazo
+	for each row
+	execute procedure rechazo();
+	
+	
+	create or replace function dosCompras1min() returns trigger as $$
+	declare 
+		i char(16);
+	begin 
+		select into i nrotarjeta from compra c1 where exists(select nrotarjeta from compra c2 where c1.nrotarjeta=c2.nrotarjeta group by nrotarjeta having count(c2.nrotarjeta)>=2
+		and exists (select codigopostal from comercio p1 where exists(select codigopostal from comercio p2 where p1.codigopostal=p2.codigopostal group by codigopostal having count(p2.codigopostal)>=2)));
+		if found then 
+			insert into alerta values(default, i, current_timestamp, null, 1, 'dos compras en menos de 1 minuto');
+		end if;
+		return new;
+	end;
+	$$ language plpgsql;
+	
+	create trigger dosCompras_trg 
+	after update or insert on compra
+	for each row
+	execute procedure dosCompras1min();
+	
+	create or replace function dosCompras5min() returns trigger as $$
+	declare
+		v char(16);
+	begin
+		select into v nrotarjeta from compra c1 where exists(select nrotarjeta from compra c2 where c1.nrotarjeta=c2.nrotarjeta group by nrotarjeta having count(c2.nrotarjeta)>=2
+		and exists (select distinct(codigopostal) from comercio group by codigopostal));
+		if found then 
+			insert into alerta values(default, v, current_timestamp, null, 5, 'dos compras en menos de 5 minuto');
+		end if;
+		return new;
+	end;
+	$$ language plpgsql;
+	 
+	create trigger dosCompras5min_trg 
+	after update or insert on compra
+	for each row
+	execute procedure dosCompras5min();
+	
+]
+
+== Conclusiones
+
+ Este proyecto nos sirvió para reflejar todos nuestros conocimientos obtenidos que se dio durante toda la cursada de la materia,
+como también la información que obtuvimos por realizar búsquedas por nuestra cuenta sobre las herramientas que requería el trabajo.
+ Se logró realizar el total del proyecto, lo cual estamos satisfechos por el resultado, ya que se nos presentaron varios incovenientes
+pero pudimos afrontarlos en conjunto.
+ 
+  
+
+
